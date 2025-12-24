@@ -31,13 +31,20 @@ This project uses a hybrid approach to balance performance and export quality.
 
 To handle complex combinations of panning, scaling, free rotation, and discrete rotation (90° steps) without coordinate singularities (Gimbal lock), the application uses a strict nested hierarchy:
 
-```mermaid
-graph TD;
-    A["Smooth Rotation Wrapper"] -->|"Rotate Z (Slider)"| B["Pan & Scale Container"];
-    B -->|"Translate X/Y & Scale"| C["Base Transform Wrapper"];
-    C -->|"Rotate 90deg steps & Scale -1/1 (Flip)"| D["Image Element"];
+1. **Smooth Rotation Wrapper (Outermost)**
+* *Role*: Handles arbitrary rotation from the slider (Z-axis).
+* *Contains*: Pan & Scale Container
 
-```
+2. **Pan & Scale Container**
+* *Role*: Handles X/Y translation and scaling (Zoom).
+* *Contains*: Base Transform Wrapper
+
+3. **Base Transform Wrapper**
+* *Role*: Handles discrete 90° rotation steps and flipping (Scale -1/1).
+* *Contains*: Image Element
+
+4. **Image Element (Innermost)**
+* *Role*: The raw source image.
 
 ### 3. The Constraint Solver (Iterative Projection)
 
