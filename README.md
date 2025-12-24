@@ -33,9 +33,9 @@ To handle complex combinations of panning, scaling, free rotation, and discrete 
 
 ```mermaid
 graph TD;
-    A[Smooth Rotation Wrapper] -->|Rotate Z (Slider)| B[Pan & Scale Container];
-    B -->|Translate X/Y & Scale| C[Base Transform Wrapper];
-    C -->|Rotate 90deg steps & Scale -1/1 (Flip)| D[Image Element];
+    A["Smooth Rotation Wrapper"] -->|"Rotate Z (Slider)"| B["Pan & Scale Container"];
+    B -->|"Translate X/Y & Scale"| C["Base Transform Wrapper"];
+    C -->|"Rotate 90deg steps & Scale -1/1 (Flip)"| D["Image Element"];
 
 ```
 
