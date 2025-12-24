@@ -17,7 +17,6 @@
             flex-direction: column;
         }
 
-        /* UI Components */
         .btn {
             padding: 8px 16px;
             background: #2c2c2c;
@@ -357,11 +356,8 @@ function initEditor() {
     state.panX = 0;
     state.panY = 0;
     
-    // 【修正】初期状態で画像全体を選択する
-    // 画像のアスペクト比に合わせてボックスサイズを決定する
     const imgAspect = state.currentImgWidth / state.currentImgHeight;
     
-    // 画面中央の最大表示領域(TARGET_VIEWPORT_SIZE)内に収まる最大サイズを計算
     if (imgAspect > 1) {
         state.boxWidth = TARGET_VIEWPORT_SIZE;
         state.boxHeight = TARGET_VIEWPORT_SIZE / imgAspect;
@@ -380,7 +376,6 @@ function initEditor() {
     ui.aspectSelect.value = "free";
     updateOrientationButtons();
 
-    // 画像サイズとボックスサイズが一致するようにスケールを設定 (scale * naturalWidth = boxWidth)
     state.scale = state.boxWidth / state.currentImgWidth;
     state.baseScale = state.scale;
 
@@ -466,8 +461,6 @@ function calculateResize(dx, dy, dir, startW, startH, startOffX, startOffY, keep
 
     if (keepRatio) {
         const ratio = state.aspectRatioVal;
-        let dW = (newR - newL) - startW;
-        let dH = (newB - newT) - startH;
         
         if (dir === 'l' || dir === 'r') {
             const targetH = (newR - newL) / ratio;
@@ -494,7 +487,6 @@ function calculateResize(dx, dy, dir, startW, startH, startOffX, startOffY, keep
         }
     }
 
-    // Constraint Check
     const corners = [
         {x: newL, y: newT}, {x: newR, y: newT},
         {x: newR, y: newB}, {x: newL, y: newB}
@@ -502,12 +494,11 @@ function calculateResize(dx, dy, dir, startW, startH, startOffX, startOffY, keep
     let valid = true;
     for(let p of corners) {
         const c = constrainPoint(p.x, p.y);
-        if (Math.abs(c.x - p.x) > 0.1 || Math.abs(c.y - p.y) > 0.1) {
+        if (Math.abs(c.x - p.x) > 0.01 || Math.abs(c.y - p.y) > 0.01) {
             valid = false; break;
         }
     }
     
-    // Simple shrink fallback if invalid
     if (!valid) {
         let anx, any;
         if (dir === 'tl') { anx=newR; any=newB; }
@@ -527,7 +518,7 @@ function calculateResize(dx, dy, dir, startW, startH, startOffX, startOffY, keep
             let ok = true;
             for(let p of tCorners) {
                 const c = constrainPoint(p.x, p.y);
-                if (Math.abs(c.x - p.x) > 0.1 || Math.abs(c.y - p.y) > 0.1) {
+                if (Math.abs(c.x - p.x) > 0.01 || Math.abs(c.y - p.y) > 0.01) {
                     ok = false; break;
                 }
             }
@@ -704,10 +695,7 @@ function animateReset() {
     if (state.isAnimating) return;
     state.isAnimating = true;
 
-    // 【修正】ターゲットサイズの計算
     const targetSize = TARGET_VIEWPORT_SIZE;
-    
-    // 現在のボックス形状ではなく、指定されたアスペクト比（あれば）を優先する
     let targetAspect;
     if (state.aspectRatioVal !== null) {
         targetAspect = state.aspectRatioVal;
@@ -725,26 +713,24 @@ function animateReset() {
     }
 
     const scaleMultiplier = targetBoxW / state.boxWidth;
-    // もしアスペクト比変更により形状が大きく変わる場合（例：3:2 -> 1:1）、
-    // 単純な倍率だけでなく、形状変化も考慮する必要があるが、
-    // ここでは「現在の見た目の中心」を維持してズームする
+    let targetScale = state.scale * scaleMultiplier;
     
-    // しかし、アスペクト比が変わると scaleMultiplier の定義が曖昧になる（幅基準か高さ基準か）。
-    // ここではターゲットの幅と現在の幅の比率を使う（シンプルに）
-    // 比率変更時は、幅基準でスケールさせると自然に見えることが多い
+    // 【修正箇所】 座標系変換を厳密に行う
+    // BoxOffset（画面座標）を画像ローカル座標（回転適用）に変換してから引き算する
+    const rad = state.smoothRotation * Math.PI / 180;
+    // getConstraintsParams と同じ Screen -> Local 変換係数
+    const C = Math.cos(-rad);
+    const S = Math.sin(-rad);
     
-    // もし scaleMultiplier が極端になる場合（縦横入れ替わりなど）、
-    // 高さ基準の方が良い場合もあるが、一旦幅基準とする。
+    // BoxOffsetをローカル座標に投影
+    const boxLocalX = state.boxOffsetX * C - state.boxOffsetY * S;
+    const boxLocalY = state.boxOffsetX * S + state.boxOffsetY * C;
     
-    let targetScale = state.scale * (targetBoxW / state.boxWidth);
-    
-    // もしターゲット形状に対して画像が足りなくなる（拡大しすぎ）場合を考慮すべきだが、
-    // getRequiredScale で補正されるので一旦このまま計算
+    // 現在の PanX, PanY はローカル座標での画像位置
+    // 新しい PanX は (現在のPan - Boxのズレ) * 倍率
+    let targetPanX = (state.panX - boxLocalX) * scaleMultiplier;
+    let targetPanY = (state.panY - boxLocalY) * scaleMultiplier;
 
-    let targetPanX = (state.panX - state.boxOffsetX) * (targetBoxW / state.boxWidth);
-    let targetPanY = (state.panY - state.boxOffsetY) * (targetBoxW / state.boxWidth);
-
-    // アニメーション開始時点の状態を保存
     const start = {
         w: state.boxWidth, h: state.boxHeight,
         offX: state.boxOffsetX, offY: state.boxOffsetY,
@@ -786,14 +772,6 @@ function animateReset() {
             state.panY = end.py;
             state.baseScale = state.scale;
             
-            const reqScale = getRequiredScale();
-            if (reqScale > state.scale + 1e-9) {
-                const fix = reqScale / state.scale;
-                state.scale = reqScale;
-                state.panX *= fix;
-                state.panY *= fix;
-                state.baseScale = state.scale;
-            }
             renderDOM();
             updateOrientationButtons();
             state.isAnimating = false;
@@ -822,10 +800,6 @@ ui.aspectSelect.addEventListener('change', (e) => {
              ratio = Math.min(num1, num2) / Math.max(num1, num2);
         }
         state.aspectRatioVal = ratio;
-        
-        // 【修正】即時反映のためにアニメーションを呼び出す
-        // アニメーション内で aspectRatioVal を見て目標形状を変えるため、
-        // ここでは animateReset を呼ぶだけでよい
         animateReset();
     }
     updateOrientationButtons();
@@ -946,8 +920,22 @@ ui.downloadBtn.addEventListener('click', () => {
     const panScaleGroup = new THREE.Group();
     panScaleGroup.add(baseGroup);
     panScaleGroup.scale.set(state.scale, state.scale, 1);
-    panScaleGroup.position.x = state.panX - state.boxOffsetX;
-    panScaleGroup.position.y = -(state.panY - state.boxOffsetY); 
+    
+    // 【修正】書き出し時も回転考慮の座標変換が必要
+    // プレビューのPanはRotated Space、BoxOffsetはScreen Space
+    // これを合わせて「Rotated Spaceでの最終的な画像位置」を算出する
+    // TargetPan(Local) = Pan(Local) - BoxOffset(LocalProjected)
+    
+    const rad = state.smoothRotation * Math.PI / 180;
+    const C = Math.cos(-rad);
+    const S = Math.sin(-rad);
+    
+    const boxLocalX = state.boxOffsetX * C - state.boxOffsetY * S;
+    const boxLocalY = state.boxOffsetX * S + state.boxOffsetY * C;
+    
+    panScaleGroup.position.x = state.panX - boxLocalX;
+    // WebGL Y is inverted
+    panScaleGroup.position.y = -(state.panY - boxLocalY); 
 
     const smoothGroup = new THREE.Group();
     smoothGroup.add(panScaleGroup);
