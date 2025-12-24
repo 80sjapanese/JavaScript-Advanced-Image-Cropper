@@ -1,0 +1,973 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Professional Image Cropper</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            background-color: #121212;
+            color: #e0e0e0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            overflow: hidden;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* UI Components */
+        .btn {
+            padding: 8px 16px;
+            background: #2c2c2c;
+            color: #fff;
+            border: 1px solid #444;
+            cursor: pointer;
+            border-radius: 6px;
+            font-size: 13px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            transition: background 0.2s, border-color 0.2s;
+            user-select: none;
+        }
+        .btn:hover { background: #3d3d3d; border-color: #666; }
+        .btn.active { background: #0066cc; border-color: #005bb5; }
+
+        select {
+            padding: 8px 12px;
+            background: #2c2c2c;
+            color: #fff;
+            border: 1px solid #444;
+            border-radius: 6px;
+            font-size: 13px;
+            cursor: pointer;
+            outline: none;
+        }
+
+        #toolbar {
+            height: 80px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 30px;
+            background: #1e1e1e;
+            z-index: 20;
+            border-top: 1px solid #333;
+            box-shadow: 0 -4px 10px rgba(0,0,0,0.2);
+        }
+
+        #controls-left {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .divider {
+            width: 1px;
+            height: 30px;
+            background: #444;
+        }
+
+        #upload-screen {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: #121212;
+            z-index: 100;
+        }
+
+        #workspace {
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+            cursor: grab;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-image: 
+                linear-gradient(45deg, #1a1a1a 25%, transparent 25%), 
+                linear-gradient(-45deg, #1a1a1a 25%, transparent 25%), 
+                linear-gradient(45deg, transparent 75%, #1a1a1a 75%), 
+                linear-gradient(-45deg, transparent 75%, #1a1a1a 75%);
+            background-size: 20px 20px;
+            background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+        }
+        #workspace:active { cursor: grabbing; }
+
+        #smooth-rot-wrapper {
+            position: absolute;
+            width: 0; height: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        #pan-scale-container {
+            position: absolute;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            will-change: transform;
+        }
+        #base-transform-wrapper { display: block; }
+        #target-image {
+            display: block;
+            pointer-events: none;
+            user-select: none;
+            box-shadow: 0 0 30px rgba(0,0,0,0.6);
+        }
+
+        #crop-box {
+            position: absolute;
+            box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.8);
+            border: 1px solid rgba(255, 255, 255, 0.9);
+            outline: 1px solid rgba(0, 0, 0, 0.4); 
+            pointer-events: none;
+            z-index: 5;
+            will-change: width, height, left, top;
+        }
+
+        .grid-line {
+            position: absolute;
+            background-color: rgba(255, 255, 255, 0.3);
+            pointer-events: none;
+        }
+        .grid-v { width: 1px; height: 100%; top: 0; }
+        .grid-h { height: 1px; width: 100%; left: 0; }
+        .grid-v:nth-child(1) { left: 33.33%; }
+        .grid-v:nth-child(2) { left: 66.66%; }
+        .grid-h:nth-child(3) { top: 33.33%; }
+        .grid-h:nth-child(4) { top: 66.66%; }
+
+        .handle {
+            position: absolute;
+            background: #fff;
+            border: 1px solid #000;
+            pointer-events: auto;
+            box-sizing: border-box;
+            box-shadow: 0 0 4px rgba(0,0,0,0.3);
+            z-index: 10;
+        }
+        
+        .handle-corner { width: 14px; height: 14px; border-radius: 50%; }
+        .handle-tl { top: -7px; left: -7px; cursor: nwse-resize; }
+        .handle-tr { top: -7px; right: -7px; cursor: nesw-resize; }
+        .handle-bl { bottom: -7px; left: -7px; cursor: nesw-resize; }
+        .handle-br { bottom: -7px; right: -7px; cursor: nwse-resize; }
+
+        .handle-side { border-radius: 2px; }
+        .handle-t, .handle-b {
+            width: 24px; height: 6px;
+            left: 50%; margin-left: -12px; cursor: ns-resize;
+        }
+        .handle-t { top: -3px; }
+        .handle-b { bottom: -3px; }
+        .handle-l, .handle-r {
+            width: 6px; height: 24px;
+            top: 50%; margin-top: -12px; cursor: ew-resize;
+        }
+        .handle-l { left: -3px; }
+        .handle-r { right: -3px; }
+
+        input[type=range] {
+            -webkit-appearance: none;
+            background: transparent;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 16px; width: 16px;
+            border-radius: 50%;
+            background: #fff;
+            cursor: pointer;
+            margin-top: -6px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%; height: 4px;
+            cursor: pointer;
+            background: #555;
+            border-radius: 2px;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="upload-screen">
+        <label class="btn" style="font-size: 16px; padding: 12px 24px;">
+            Open Image
+            <input type="file" id="file-input" accept="image/*" style="display: none;">
+        </label>
+    </div>
+
+    <div id="workspace">
+        <div id="smooth-rot-wrapper">
+            <div id="pan-scale-container">
+                <div id="base-transform-wrapper">
+                    <img id="target-image" src="" alt="">
+                </div>
+            </div>
+        </div>
+
+        <div id="crop-box">
+            <div class="grid-line grid-v"></div>
+            <div class="grid-line grid-v"></div>
+            <div class="grid-line grid-h"></div>
+            <div class="grid-line grid-h"></div>
+
+            <div class="handle handle-corner handle-tl" data-dir="tl"></div>
+            <div class="handle handle-corner handle-tr" data-dir="tr"></div>
+            <div class="handle handle-corner handle-bl" data-dir="bl"></div>
+            <div class="handle handle-corner handle-br" data-dir="br"></div>
+            
+            <div class="handle handle-side handle-t" data-dir="t"></div>
+            <div class="handle handle-side handle-b" data-dir="b"></div>
+            <div class="handle handle-side handle-l" data-dir="l"></div>
+            <div class="handle handle-side handle-r" data-dir="r"></div>
+        </div>
+    </div>
+
+    <div id="toolbar" style="display:none;">
+        <div id="controls-left">
+            <select id="aspect-select">
+                <option value="free">Free</option>
+                <option value="3:2">3 : 2</option>
+                <option value="4:3">4 : 3</option>
+                <option value="1:1">1 : 1</option>
+                <option value="16:9">16 : 9</option>
+            </select>
+            
+            <button class="btn" id="orient-landscape" title="Landscape" style="padding: 6px 10px;">
+                <span style="display:inline-block; width:14px; height:9px; border:2px solid currentColor; border-radius:1px;"></span>
+            </button>
+            <button class="btn" id="orient-portrait" title="Portrait" style="padding: 6px 10px;">
+                <span style="display:inline-block; width:9px; height:14px; border:2px solid currentColor; border-radius:1px;"></span>
+            </button>
+            
+            <div class="divider"></div>
+
+            <button class="btn" id="btn-rot-l" title="Rotate Left">↺</button>
+            <button class="btn" id="btn-rot-r" title="Rotate Right">↻</button>
+            <button class="btn" id="btn-flip-h" title="Flip Horizontal">⇄</button>
+            <button class="btn" id="btn-flip-v" title="Flip Vertical">⇅</button>
+            
+            <div class="divider"></div>
+            
+            <span style="font-size: 12px; color:#aaa;">Angle</span>
+            <input type="range" id="rotation-slider" min="-45" max="45" value="0" step="0.01" style="width: 300px;">
+            <span id="rotation-val" style="width: 50px; text-align: right; font-size:13px; font-variant-numeric: tabular-nums;">0.00°</span>
+        </div>
+        
+        <button id="download-btn" class="btn" style="background:#0066cc; border-color:#005bb5; font-weight:bold; padding: 10px 24px; font-size:14px;">Export</button>
+    </div>
+
+<script>
+const TARGET_VIEWPORT_SIZE = 550;
+
+const state = {
+    naturalWidth: 0,
+    naturalHeight: 0,
+    img: null,
+    currentImgWidth: 0,
+    currentImgHeight: 0,
+    
+    scale: 1,
+    baseScale: 1, 
+    smoothRotation: 0, 
+    baseRotationIndex: 0, 
+    flipX: 1, 
+    flipY: 1,
+    panX: 0,
+    panY: 0,
+
+    boxWidth: TARGET_VIEWPORT_SIZE,
+    boxHeight: TARGET_VIEWPORT_SIZE,
+    boxOffsetX: 0, 
+    boxOffsetY: 0, 
+
+    aspectRatioVal: null,
+    
+    isDraggingImage: false,
+    lastMouseX: 0,
+    lastMouseY: 0,
+
+    isResizingBox: false,
+    resizeDir: null,
+    resizeStartBoxWidth: 0,
+    resizeStartBoxHeight: 0,
+    resizeStartBoxOffsetX: 0,
+    resizeStartBoxOffsetY: 0,
+
+    isAnimating: false
+};
+
+const ui = {
+    uploadScreen: document.getElementById('upload-screen'),
+    fileInput: document.getElementById('file-input'),
+    toolbar: document.getElementById('toolbar'),
+    workspace: document.getElementById('workspace'),
+    smoothWrapper: document.getElementById('smooth-rot-wrapper'),
+    panContainer: document.getElementById('pan-scale-container'),
+    baseWrapper: document.getElementById('base-transform-wrapper'),
+    targetImg: document.getElementById('target-image'),
+    cropBox: document.getElementById('crop-box'),
+    rotationSlider: document.getElementById('rotation-slider'),
+    rotationVal: document.getElementById('rotation-val'),
+    downloadBtn: document.getElementById('download-btn'),
+    aspectSelect: document.getElementById('aspect-select'),
+    btnLand: document.getElementById('orient-landscape'),
+    btnPort: document.getElementById('orient-portrait'),
+    btnRotL: document.getElementById('btn-rot-l'),
+    btnRotR: document.getElementById('btn-rot-r'),
+    btnFlipH: document.getElementById('btn-flip-h'),
+    btnFlipV: document.getElementById('btn-flip-v'),
+};
+
+ui.fileInput.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+        const img = new Image();
+        img.onload = () => {
+            state.img = img;
+            state.naturalWidth = img.naturalWidth;
+            state.naturalHeight = img.naturalHeight;
+            ui.targetImg.src = evt.target.result;
+            initEditor();
+        };
+        img.src = evt.target.result;
+    };
+    reader.readAsDataURL(file);
+});
+
+function initEditor() {
+    ui.uploadScreen.style.display = 'none';
+    ui.toolbar.style.display = 'flex';
+    
+    state.currentImgWidth = state.naturalWidth;
+    state.currentImgHeight = state.naturalHeight;
+    state.smoothRotation = 0;
+    state.baseRotationIndex = 0;
+    state.flipX = 1;
+    state.flipY = 1;
+    state.panX = 0;
+    state.panY = 0;
+    
+    // 【修正】初期状態で画像全体を選択する
+    // 画像のアスペクト比に合わせてボックスサイズを決定する
+    const imgAspect = state.currentImgWidth / state.currentImgHeight;
+    
+    // 画面中央の最大表示領域(TARGET_VIEWPORT_SIZE)内に収まる最大サイズを計算
+    if (imgAspect > 1) {
+        state.boxWidth = TARGET_VIEWPORT_SIZE;
+        state.boxHeight = TARGET_VIEWPORT_SIZE / imgAspect;
+    } else {
+        state.boxHeight = TARGET_VIEWPORT_SIZE;
+        state.boxWidth = TARGET_VIEWPORT_SIZE * imgAspect;
+    }
+    
+    state.boxOffsetX = 0;
+    state.boxOffsetY = 0;
+    
+    state.aspectRatioVal = null;
+    
+    ui.rotationSlider.value = 0;
+    ui.rotationVal.innerText = "0.00°";
+    ui.aspectSelect.value = "free";
+    updateOrientationButtons();
+
+    // 画像サイズとボックスサイズが一致するようにスケールを設定 (scale * naturalWidth = boxWidth)
+    state.scale = state.boxWidth / state.currentImgWidth;
+    state.baseScale = state.scale;
+
+    updateScaleAndPanForRotation(); 
+    renderDOM();
+}
+
+function updateOrientationButtons() {
+    const isLand = state.boxWidth >= state.boxHeight;
+    ui.btnLand.classList.toggle('active', isLand);
+    ui.btnPort.classList.toggle('active', !isLand);
+}
+
+// ----------------------
+// MATH
+// ----------------------
+function getBoxCorners(w, h, offX, offY) {
+    const halfW = w / 2;
+    const halfH = h / 2;
+    return [
+        {x: offX - halfW, y: offY - halfH}, 
+        {x: offX + halfW, y: offY - halfH}, 
+        {x: offX + halfW, y: offY + halfH}, 
+        {x: offX - halfW, y: offY + halfH}
+    ];
+}
+
+function getConstraintsParams() {
+    const rad = state.smoothRotation * Math.PI / 180;
+    const C = Math.cos(-rad);
+    const S = Math.sin(-rad);
+    const limW = (state.currentImgWidth * state.scale) / 2;
+    const limH = (state.currentImgHeight * state.scale) / 2;
+    const constraints = [];
+    const signs = [{sx:1,sy:1},{sx:-1,sy:1},{sx:1,sy:-1},{sx:-1,sy:-1}];
+    signs.forEach(({sx, sy}) => {
+        const aX = sx * C * 0.5;
+        const bX = -sy * S * 0.5;
+        const offsetX = state.panX;
+        constraints.push({ a: C, b: -S, d: limW + offsetX });
+        constraints.push({ a: -C, b: S, d: limW - offsetX });
+        constraints.push({ a: S, b: C, d: limH + state.panY });
+        constraints.push({ a: -S, b: -C, d: limH - state.panY });
+    });
+    return constraints;
+}
+
+function constrainPoint(x, y) {
+    const constraints = getConstraintsParams();
+    let cx = x, cy = y;
+    for (let i = 0; i < 10; i++) {
+        let satisfied = true;
+        for (let k = 0; k < constraints.length; k++) {
+            const {a, b, d} = constraints[k];
+            const val = a * cx + b * cy;
+            if (val > d + 1e-9) {
+                satisfied = false;
+                const diff = val - d;
+                cx -= a * diff;
+                cy -= b * diff;
+            }
+        }
+        if (satisfied) break;
+    }
+    return { x: cx, y: cy };
+}
+
+function calculateResize(dx, dy, dir, startW, startH, startOffX, startOffY, keepRatio) {
+    const halfW = startW / 2;
+    const halfH = startH / 2;
+    let newL = startOffX - halfW;
+    let newR = startOffX + halfW;
+    let newT = startOffY - halfH;
+    let newB = startOffY + halfH;
+
+    if (dir.includes('l')) newL += dx;
+    if (dir.includes('r')) newR += dx;
+    if (dir.includes('t')) newT += dy;
+    if (dir.includes('b')) newB += dy;
+
+    if (newL > newR) { const t = newL; newL = newR; newR = t; }
+    if (newT > newB) { const t = newT; newT = newB; newB = t; }
+
+    if (keepRatio) {
+        const ratio = state.aspectRatioVal;
+        let dW = (newR - newL) - startW;
+        let dH = (newB - newT) - startH;
+        
+        if (dir === 'l' || dir === 'r') {
+            const targetH = (newR - newL) / ratio;
+            const hDiff = targetH - (newB - newT);
+            newT -= hDiff / 2;
+            newB += hDiff / 2;
+        } else if (dir === 't' || dir === 'b') {
+            const targetW = (newB - newT) * ratio;
+            const wDiff = targetW - (newR - newL);
+            newL -= wDiff / 2;
+            newR += wDiff / 2;
+        } else {
+            const currentW = newR - newL;
+            const currentH = newB - newT;
+            if (currentW / currentH > ratio) {
+                 const targetH = currentW / ratio;
+                 if (dir.includes('t')) newT = newB - targetH;
+                 else newB = newT + targetH;
+            } else {
+                 const targetW = currentH * ratio;
+                 if (dir.includes('l')) newL = newR - targetW;
+                 else newR = newL + targetW;
+            }
+        }
+    }
+
+    // Constraint Check
+    const corners = [
+        {x: newL, y: newT}, {x: newR, y: newT},
+        {x: newR, y: newB}, {x: newL, y: newB}
+    ];
+    let valid = true;
+    for(let p of corners) {
+        const c = constrainPoint(p.x, p.y);
+        if (Math.abs(c.x - p.x) > 0.1 || Math.abs(c.y - p.y) > 0.1) {
+            valid = false; break;
+        }
+    }
+    
+    // Simple shrink fallback if invalid
+    if (!valid) {
+        let anx, any;
+        if (dir === 'tl') { anx=newR; any=newB; }
+        else if (dir === 'br') { anx=newL; any=newT; }
+        else if (dir === 'tr') { anx=newL; any=newB; }
+        else if (dir === 'bl') { anx=newR; any=newT; }
+        else { anx = (newL+newR)/2; any = (newT+newB)/2; }
+        
+        let low = 0, high = 1, bestScale = 0;
+        for(let i=0; i<10; i++) {
+            const mid = (low + high) / 2;
+            const tL = anx + (newL - anx) * mid;
+            const tR = anx + (newR - anx) * mid;
+            const tT = any + (newT - any) * mid;
+            const tB = any + (newB - any) * mid;
+            const tCorners = [{x:tL, y:tT}, {x:tR, y:tT}, {x:tR, y:tB}, {x:tL, y:tB}];
+            let ok = true;
+            for(let p of tCorners) {
+                const c = constrainPoint(p.x, p.y);
+                if (Math.abs(c.x - p.x) > 0.1 || Math.abs(c.y - p.y) > 0.1) {
+                    ok = false; break;
+                }
+            }
+            if (ok) { bestScale = mid; low = mid; } else { high = mid; }
+        }
+        newL = anx + (newL - anx) * bestScale;
+        newR = anx + (newR - anx) * bestScale;
+        newT = any + (newT - any) * bestScale;
+        newB = any + (newB - any) * bestScale;
+    }
+
+    if (newR - newL < 50) newR = newL + 50;
+    if (newB - newT < 50) newB = newT + 50;
+
+    return {
+        w: newR - newL,
+        h: newB - newT,
+        x: (newL + newR) / 2,
+        y: (newT + newB) / 2
+    };
+}
+
+function getRequiredScale() {
+    const corners = getBoxCorners(state.boxWidth, state.boxHeight, state.boxOffsetX, state.boxOffsetY);
+    const rad = state.smoothRotation * Math.PI / 180;
+    const cos = Math.cos(-rad);
+    const sin = Math.sin(-rad);
+    let requiredScale = 0;
+    const halfImgW = state.currentImgWidth / 2;
+    const halfImgH = state.currentImgHeight / 2;
+    corners.forEach(p => {
+        const rx = p.x * cos - p.y * sin;
+        const ry = p.x * sin + p.y * cos;
+        const distX = Math.abs(rx - state.panX);
+        const distY = Math.abs(ry - state.panY);
+        const sX = distX / halfImgW;
+        const sY = distY / halfImgH;
+        requiredScale = Math.max(requiredScale, sX, sY);
+    });
+    return requiredScale;
+}
+
+function updateScaleAndPanForRotation() {
+    const prevScale = state.scale;
+    const reqScale = getRequiredScale();
+    const newScale = Math.max(reqScale, state.baseScale);
+    if (Math.abs(newScale - prevScale) > 1e-9 && prevScale > 0) {
+        const ratio = newScale / prevScale;
+        state.scale = newScale;
+        state.panX *= ratio;
+        state.panY *= ratio;
+    } else {
+        state.scale = Math.max(state.scale, reqScale);
+    }
+}
+
+function clampPan() {
+    const rad = state.smoothRotation * Math.PI / 180;
+    const cos = Math.cos(-rad);
+    const sin = Math.sin(-rad);
+    const corners = getBoxCorners(state.boxWidth, state.boxHeight, state.boxOffsetX, state.boxOffsetY);
+    
+    let minRx = Infinity, maxRx = -Infinity;
+    let minRy = Infinity, maxRy = -Infinity;
+    
+    corners.forEach(p => {
+        const rx = p.x * cos - p.y * sin;
+        const ry = p.x * sin + p.y * cos;
+        if(rx < minRx) minRx = rx;
+        if(rx > maxRx) maxRx = rx;
+        if(ry < minRy) minRy = ry;
+        if(ry > maxRy) maxRy = ry;
+    });
+    
+    const limitW = (state.currentImgWidth * state.scale) / 2;
+    const limitH = (state.currentImgHeight * state.scale) / 2;
+    
+    const minPanX = maxRx - limitW;
+    const maxPanX = minRx + limitW;
+    const minPanY = maxRy - limitH;
+    const maxPanY = minRy + limitH;
+    
+    if (minPanX > maxPanX) state.panX = (minPanX + maxPanX) / 2;
+    else state.panX = Math.max(minPanX, Math.min(maxPanX, state.panX));
+    if (minPanY > maxPanY) state.panY = (minPanY + maxPanY) / 2;
+    else state.panY = Math.max(minPanY, Math.min(maxPanY, state.panY));
+}
+
+// ----------------------
+// TRANSFORMS
+// ----------------------
+function rotateBase(direction) {
+    let newIndex = state.baseRotationIndex + direction;
+    if (newIndex < 0) newIndex = 3;
+    if (newIndex > 3) newIndex = 0;
+    state.baseRotationIndex = newIndex;
+
+    const tempW = state.currentImgWidth;
+    state.currentImgWidth = state.currentImgHeight;
+    state.currentImgHeight = tempW;
+
+    const tempBoxW = state.boxWidth;
+    state.boxWidth = state.boxHeight;
+    state.boxHeight = tempBoxW;
+    
+    if (direction === 1) { // CW
+        const tx = state.boxOffsetX;
+        state.boxOffsetX = -state.boxOffsetY;
+        state.boxOffsetY = tx;
+        const px = state.panX;
+        state.panX = -state.panY;
+        state.panY = px;
+    } else { // CCW
+        const tx = state.boxOffsetX;
+        state.boxOffsetX = state.boxOffsetY;
+        state.boxOffsetY = -tx;
+        const px = state.panX;
+        state.panX = state.panY;
+        state.panY = -px;
+    }
+
+    if (state.aspectRatioVal !== null) {
+        state.aspectRatioVal = 1 / state.aspectRatioVal;
+    }
+    
+    updateOrientationButtons();
+    animateReset();
+}
+
+function flipBase(axis) {
+    if (axis === 'h') {
+        state.flipX *= -1;
+        state.panX *= -1;
+        state.boxOffsetX *= -1;
+    } else {
+        state.flipY *= -1;
+        state.panY *= -1;
+        state.boxOffsetY *= -1;
+    }
+    renderDOM();
+}
+
+function toggleOrientation() {
+    const temp = state.boxWidth;
+    state.boxWidth = state.boxHeight;
+    state.boxHeight = temp;
+    if (state.aspectRatioVal !== null) {
+        state.aspectRatioVal = 1 / state.aspectRatioVal;
+    }
+    updateOrientationButtons();
+    animateReset();
+}
+
+
+// ----------------------
+// RENDER & ANIMATION
+// ----------------------
+function renderDOM() {
+    ui.smoothWrapper.style.transform = `rotate(${state.smoothRotation}deg)`;
+    ui.panContainer.style.transform = `
+        translate(${state.panX}px, ${state.panY}px)
+        scale(${state.scale})
+    `;
+    const deg = state.baseRotationIndex * 90;
+    ui.baseWrapper.style.transform = `rotate(${deg}deg) scale(${state.flipX}, ${state.flipY})`;
+
+    ui.cropBox.style.width = `${state.boxWidth}px`;
+    ui.cropBox.style.height = `${state.boxHeight}px`;
+    ui.cropBox.style.left = `calc(50% + ${state.boxOffsetX}px - ${state.boxWidth/2}px)`;
+    ui.cropBox.style.top = `calc(50% + ${state.boxOffsetY}px - ${state.boxHeight/2}px)`;
+}
+
+function animateReset() {
+    if (state.isAnimating) return;
+    state.isAnimating = true;
+
+    // 【修正】ターゲットサイズの計算
+    const targetSize = TARGET_VIEWPORT_SIZE;
+    
+    // 現在のボックス形状ではなく、指定されたアスペクト比（あれば）を優先する
+    let targetAspect;
+    if (state.aspectRatioVal !== null) {
+        targetAspect = state.aspectRatioVal;
+    } else {
+        targetAspect = state.boxWidth / state.boxHeight;
+    }
+    
+    let targetBoxW, targetBoxH;
+    if (targetAspect > 1) {
+        targetBoxW = targetSize;
+        targetBoxH = targetSize / targetAspect;
+    } else {
+        targetBoxH = targetSize;
+        targetBoxW = targetSize * targetAspect;
+    }
+
+    const scaleMultiplier = targetBoxW / state.boxWidth;
+    // もしアスペクト比変更により形状が大きく変わる場合（例：3:2 -> 1:1）、
+    // 単純な倍率だけでなく、形状変化も考慮する必要があるが、
+    // ここでは「現在の見た目の中心」を維持してズームする
+    
+    // しかし、アスペクト比が変わると scaleMultiplier の定義が曖昧になる（幅基準か高さ基準か）。
+    // ここではターゲットの幅と現在の幅の比率を使う（シンプルに）
+    // 比率変更時は、幅基準でスケールさせると自然に見えることが多い
+    
+    // もし scaleMultiplier が極端になる場合（縦横入れ替わりなど）、
+    // 高さ基準の方が良い場合もあるが、一旦幅基準とする。
+    
+    let targetScale = state.scale * (targetBoxW / state.boxWidth);
+    
+    // もしターゲット形状に対して画像が足りなくなる（拡大しすぎ）場合を考慮すべきだが、
+    // getRequiredScale で補正されるので一旦このまま計算
+
+    let targetPanX = (state.panX - state.boxOffsetX) * (targetBoxW / state.boxWidth);
+    let targetPanY = (state.panY - state.boxOffsetY) * (targetBoxW / state.boxWidth);
+
+    // アニメーション開始時点の状態を保存
+    const start = {
+        w: state.boxWidth, h: state.boxHeight,
+        offX: state.boxOffsetX, offY: state.boxOffsetY,
+        s: state.scale, px: state.panX, py: state.panY
+    };
+    const end = {
+        w: targetBoxW, h: targetBoxH,
+        offX: 0, offY: 0,
+        s: targetScale, px: targetPanX, py: targetPanY
+    };
+
+    const duration = 300;
+    const startTime = performance.now();
+
+    function loop(now) {
+        const p = Math.min((now - startTime) / duration, 1);
+        const ease = 1 - Math.pow(1 - p, 3);
+
+        state.boxWidth = start.w + (end.w - start.w) * ease;
+        state.boxHeight = start.h + (end.h - start.h) * ease;
+        state.boxOffsetX = start.offX + (end.offX - start.offX) * ease;
+        state.boxOffsetY = start.offY + (end.offY - start.offY) * ease;
+        
+        state.scale = start.s + (end.s - start.s) * ease;
+        state.panX = start.px + (end.px - start.px) * ease;
+        state.panY = start.py + (end.py - start.py) * ease;
+
+        renderDOM();
+
+        if (p < 1) {
+            requestAnimationFrame(loop);
+        } else {
+            state.boxWidth = end.w;
+            state.boxHeight = end.h;
+            state.boxOffsetX = 0;
+            state.boxOffsetY = 0;
+            state.scale = end.s;
+            state.panX = end.px;
+            state.panY = end.py;
+            state.baseScale = state.scale;
+            
+            const reqScale = getRequiredScale();
+            if (reqScale > state.scale + 1e-9) {
+                const fix = reqScale / state.scale;
+                state.scale = reqScale;
+                state.panX *= fix;
+                state.panY *= fix;
+                state.baseScale = state.scale;
+            }
+            renderDOM();
+            updateOrientationButtons();
+            state.isAnimating = false;
+        }
+    }
+    requestAnimationFrame(loop);
+}
+
+// ----------------------
+// INTERACTIONS
+// ----------------------
+ui.aspectSelect.addEventListener('change', (e) => {
+    const val = e.target.value;
+    if (val === 'free') {
+        state.aspectRatioVal = null;
+    } else {
+        const parts = val.split(':');
+        const isLandscape = state.boxWidth >= state.boxHeight;
+        const num1 = parseFloat(parts[0]);
+        const num2 = parseFloat(parts[1]);
+        
+        let ratio;
+        if (isLandscape) {
+             ratio = Math.max(num1, num2) / Math.min(num1, num2);
+        } else {
+             ratio = Math.min(num1, num2) / Math.max(num1, num2);
+        }
+        state.aspectRatioVal = ratio;
+        
+        // 【修正】即時反映のためにアニメーションを呼び出す
+        // アニメーション内で aspectRatioVal を見て目標形状を変えるため、
+        // ここでは animateReset を呼ぶだけでよい
+        animateReset();
+    }
+    updateOrientationButtons();
+});
+
+const handleOrient = () => { toggleOrientation(); };
+ui.btnLand.addEventListener('click', handleOrient);
+ui.btnPort.addEventListener('click', handleOrient);
+ui.btnRotL.addEventListener('click', () => rotateBase(-1));
+ui.btnRotR.addEventListener('click', () => rotateBase(1));
+ui.btnFlipH.addEventListener('click', () => flipBase('h'));
+ui.btnFlipV.addEventListener('click', () => flipBase('v'));
+
+ui.workspace.addEventListener('mousedown', (e) => {
+    if (state.isAnimating) return;
+    if (e.target.classList.contains('handle')) return;
+    state.isDraggingImage = true;
+    state.lastMouseX = e.clientX;
+    state.lastMouseY = e.clientY;
+    e.preventDefault();
+});
+
+document.querySelectorAll('.handle').forEach(handle => {
+    handle.addEventListener('mousedown', (e) => {
+        if (state.isAnimating) return;
+        state.isResizingBox = true;
+        state.resizeDir = e.target.dataset.dir;
+        
+        state.resizeStartBoxWidth = state.boxWidth;
+        state.resizeStartBoxHeight = state.boxHeight;
+        state.resizeStartBoxOffsetX = state.boxOffsetX;
+        state.resizeStartBoxOffsetY = state.boxOffsetY;
+        
+        state.lastMouseX = e.clientX;
+        state.lastMouseY = e.clientY;
+        e.stopPropagation();
+        e.preventDefault();
+    });
+});
+
+window.addEventListener('mousemove', (e) => {
+    if (state.isAnimating) return;
+    const dx = e.clientX - state.lastMouseX;
+    const dy = e.clientY - state.lastMouseY;
+
+    if (state.isDraggingImage) {
+        const rad = state.smoothRotation * Math.PI / 180;
+        const cos = Math.cos(-rad); 
+        const sin = Math.sin(-rad);
+        const localDx = dx * cos - dy * sin;
+        const localDy = dx * sin + dy * cos;
+
+        state.panX += localDx;
+        state.panY += localDy;
+        clampPan(); 
+        renderDOM();
+        state.lastMouseX = e.clientX;
+        state.lastMouseY = e.clientY;
+    }
+
+    if (state.isResizingBox) {
+        const res = calculateResize(
+            dx, dy, state.resizeDir,
+            state.resizeStartBoxWidth, state.resizeStartBoxHeight,
+            state.resizeStartBoxOffsetX, state.resizeStartBoxOffsetY,
+            state.aspectRatioVal !== null
+        );
+        state.boxWidth = res.w;
+        state.boxHeight = res.h;
+        state.boxOffsetX = res.x;
+        state.boxOffsetY = res.y;
+        renderDOM();
+    }
+});
+
+window.addEventListener('mouseup', () => {
+    state.isDraggingImage = false;
+    if (state.isResizingBox) {
+        state.isResizingBox = false;
+        animateReset();
+    }
+});
+
+ui.rotationSlider.addEventListener('mousedown', () => { state.baseScale = state.scale; });
+ui.rotationSlider.addEventListener('input', (e) => {
+    state.smoothRotation = parseFloat(e.target.value);
+    ui.rotationVal.innerText = state.smoothRotation.toFixed(2) + '°';
+    updateScaleAndPanForRotation(); 
+    renderDOM();
+});
+
+ui.downloadBtn.addEventListener('click', () => {
+    const width = state.boxWidth;
+    const height = state.boxHeight;
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.OrthographicCamera(
+        -width / 2, width / 2, 
+        height / 2, -height / 2, 
+        0.1, 1000
+    );
+    camera.position.z = 10;
+
+    const texture = new THREE.Texture(state.img);
+    texture.minFilter = THREE.LinearFilter;
+    texture.magFilter = THREE.LinearFilter;
+    texture.needsUpdate = true;
+    
+    const geometry = new THREE.PlaneGeometry(state.naturalWidth, state.naturalHeight);
+    const material = new THREE.MeshBasicMaterial({ map: texture, transparent: true, side: THREE.DoubleSide });
+    const mesh = new THREE.Mesh(geometry, material);
+
+    const baseGroup = new THREE.Group();
+    baseGroup.add(mesh);
+    baseGroup.rotation.z = -(state.baseRotationIndex * 90) * Math.PI / 180;
+    baseGroup.scale.set(state.flipX, state.flipY, 1);
+
+    const panScaleGroup = new THREE.Group();
+    panScaleGroup.add(baseGroup);
+    panScaleGroup.scale.set(state.scale, state.scale, 1);
+    panScaleGroup.position.x = state.panX - state.boxOffsetX;
+    panScaleGroup.position.y = -(state.panY - state.boxOffsetY); 
+
+    const smoothGroup = new THREE.Group();
+    smoothGroup.add(panScaleGroup);
+    smoothGroup.rotation.z = -state.smoothRotation * Math.PI / 180;
+
+    scene.add(smoothGroup);
+
+    const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+    renderer.setSize(width, height);
+    renderer.setPixelRatio(window.devicePixelRatio); 
+    
+    renderer.render(scene, camera);
+
+    const dataURL = renderer.domElement.toDataURL('image/png');
+    const link = document.createElement('a');
+    link.download = 'crop-result.png';
+    link.href = dataURL;
+    link.click();
+    renderer.dispose();
+});
+</script>
+</body>
+</html>
