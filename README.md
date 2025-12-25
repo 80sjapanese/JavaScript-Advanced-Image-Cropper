@@ -6,7 +6,7 @@ A high-precision, browser-based image cropping tool built with Vanilla JavaScrip
 
 ## ✨ Key Features
 
-* **Viewport-Centric Workflow**: The crop box remains centered (or snaps back to center), while the image moves behind it. This mimics professional editing tools like Lightroom or Android photo editor.
+* **Viewport-Centric Workflow**: The crop box remains centered (or snaps back to center), while the image moves behind it. This mimics the widely used image cropping format found in Lightroom, the Android Photo Editor and Microsoft Photos.
 * **Physics-Based Constraints**: Uses an iterative mathematical solver to ensure the crop box never leaves the image boundaries, even when the image is rotated or flipped. It slides smoothly along diagonal edges rather than getting stuck.
 * **Non-Destructive Transforms**:
 * **Smooth Rotation**: Arbitrary rotation (-45° to +45°) with sub-pixel precision.
