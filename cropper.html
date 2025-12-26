@@ -691,6 +691,60 @@ function renderDOM() {
     ui.cropBox.style.top = `calc(50% + ${state.boxOffsetY}px - ${state.boxHeight/2}px)`;
 }
 
+// Helper: Calculate Min Scale to cover a box at a relative position
+function getMinScaleForBox(boxW, boxH, relPanX, relPanY) {
+    // We assume Box is centered at (0,0) locally, but Image is shifted by relPan
+    // Image coverage condition: 
+    // For every box corner C (rotated):
+    // |C - relPan * Scale| <= (ImgDim / 2) * Scale
+    
+    const corners = [
+        {x: -boxW/2, y: -boxH/2}, {x: boxW/2, y: -boxH/2},
+        {x: boxW/2, y: boxH/2}, {x: -boxW/2, y: boxH/2}
+    ];
+    
+    const rad = state.smoothRotation * Math.PI / 180;
+    const cos = Math.cos(-rad);
+    const sin = Math.sin(-rad);
+    
+    const halfImgW = state.currentImgWidth / 2;
+    const halfImgH = state.currentImgHeight / 2;
+    
+    let minScale = 0;
+    
+    corners.forEach(p => {
+        // Rotate corner to match image local space
+        const rx = p.x * cos - p.y * sin;
+        const ry = p.x * sin + p.y * cos;
+        
+        // Solve for Scale S:
+        // |rx - relPanX * S| <= halfImgW * S
+        // Let P = relPanX, L = halfImgW.
+        // |rx - P*S| <= L*S
+        // This implies S >= |rx| / (L + sign(rx)*P) 
+        // (Assuming P is "inside" L, which it should be if we are just zooming)
+        
+        const sx = Math.abs(rx) / (halfImgW - Math.sign(rx) * -relPanX); // simplified derivation?
+        // Let's derive carefully:
+        // Case 1: rx > 0. rx - P*S <= L*S => rx <= (L+P)S => S >= rx/(L+P).
+        // Case 2: rx < 0. -(rx - P*S) <= L*S => -rx + P*S <= L*S => -rx <= (L-P)S => S >= -rx/(L-P).
+        // Combine: S >= |rx| / (L + sign(rx)*P)
+        
+        // However, if (L + sign(rx)*P) is negative (Pan is outside image), we have a problem.
+        // But here we assume we are centering validly.
+        
+        const denomX = halfImgW + (rx >= 0 ? relPanX : -relPanX);
+        const s_req_x = denomX > 0 ? Math.abs(rx) / denomX : 0; // if denom < 0, implies center is way off, not handled here
+        
+        const denomY = halfImgH + (ry >= 0 ? relPanY : -relPanY);
+        const s_req_y = denomY > 0 ? Math.abs(ry) / denomY : 0;
+        
+        minScale = Math.max(minScale, s_req_x, s_req_y);
+    });
+    
+    return minScale;
+}
+
 function animateReset() {
     if (state.isAnimating) return;
     state.isAnimating = true;
@@ -712,24 +766,33 @@ function animateReset() {
         targetBoxW = targetSize * targetAspect;
     }
 
-    const scaleMultiplier = targetBoxW / state.boxWidth;
-    let targetScale = state.scale * scaleMultiplier;
-    
-    // 【修正箇所】 座標系変換を厳密に行う
-    // BoxOffset（画面座標）を画像ローカル座標（回転適用）に変換してから引き算する
+    // 1. Calculate Relative Pan (normalized) from current state
     const rad = state.smoothRotation * Math.PI / 180;
-    // getConstraintsParams と同じ Screen -> Local 変換係数
     const C = Math.cos(-rad);
     const S = Math.sin(-rad);
     
-    // BoxOffsetをローカル座標に投影
+    // Project Box Offset to Local
     const boxLocalX = state.boxOffsetX * C - state.boxOffsetY * S;
     const boxLocalY = state.boxOffsetX * S + state.boxOffsetY * C;
     
-    // 現在の PanX, PanY はローカル座標での画像位置
-    // 新しい PanX は (現在のPan - Boxのズレ) * 倍率
-    let targetPanX = (state.panX - boxLocalX) * scaleMultiplier;
-    let targetPanY = (state.panY - boxLocalY) * scaleMultiplier;
+    // RelPan is the vector from Box Center to Image Center, in unscaled pixels
+    // Current Pan is Local Image Center.
+    const relPanX = (state.panX - boxLocalX) / state.scale;
+    const relPanY = (state.panY - boxLocalY) / state.scale;
+    
+    // 2. Determine Required Scale for New Box to fit
+    const minRequiredScale = getMinScaleForBox(targetBoxW, targetBoxH, relPanX, relPanY);
+    
+    // 3. Determine Base Target Scale (Zoom to fit viewport logic)
+    const baseTargetScale = state.scale * (targetBoxW / state.boxWidth);
+    
+    // 4. Final Target Scale is the larger of the two
+    // This ensures that if the new aspect ratio pushes corners out, we zoom in.
+    let targetScale = Math.max(baseTargetScale, minRequiredScale);
+    
+    // 5. Calculate Target Pan
+    let targetPanX = relPanX * targetScale;
+    let targetPanY = relPanY * targetScale;
 
     const start = {
         w: state.boxWidth, h: state.boxHeight,
@@ -921,11 +984,6 @@ ui.downloadBtn.addEventListener('click', () => {
     panScaleGroup.add(baseGroup);
     panScaleGroup.scale.set(state.scale, state.scale, 1);
     
-    // 【修正】書き出し時も回転考慮の座標変換が必要
-    // プレビューのPanはRotated Space、BoxOffsetはScreen Space
-    // これを合わせて「Rotated Spaceでの最終的な画像位置」を算出する
-    // TargetPan(Local) = Pan(Local) - BoxOffset(LocalProjected)
-    
     const rad = state.smoothRotation * Math.PI / 180;
     const C = Math.cos(-rad);
     const S = Math.sin(-rad);
@@ -934,7 +992,6 @@ ui.downloadBtn.addEventListener('click', () => {
     const boxLocalY = state.boxOffsetX * S + state.boxOffsetY * C;
     
     panScaleGroup.position.x = state.panX - boxLocalX;
-    // WebGL Y is inverted
     panScaleGroup.position.y = -(state.panY - boxLocalY); 
 
     const smoothGroup = new THREE.Group();
