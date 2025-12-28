@@ -444,7 +444,6 @@ function constrainPoint(x, y) {
 }
 
 function calculateResize(dx, dy, dir, startW, startH, startOffX, startOffY, keepRatio) {
-    const MIN_SIZE = 50;
     const halfW = startW / 2;
     const halfH = startH / 2;
     let newL = startOffX - halfW;
@@ -459,97 +458,6 @@ function calculateResize(dx, dy, dir, startW, startH, startOffX, startOffY, keep
 
     if (newL > newR) { const t = newL; newL = newR; newR = t; }
     if (newT > newB) { const t = newT; newT = newB; newB = t; }
-
-    const enforceMinSize = () => {
-        const w = newR - newL;
-        const h = newB - newT;
-
-        // If aspect ratio is locked, enforce min size while preserving the ratio.
-        if (keepRatio && state.aspectRatioVal) {
-            const ratio = state.aspectRatioVal; // w / h
-            const cx = (newL + newR) / 2;
-            const cy = (newT + newB) / 2;
-
-            // Determine the governing minimum dimension so that BOTH sides stay >= MIN_SIZE.
-            let targetW = w;
-            let targetH = h;
-
-            if (ratio >= 1) {
-                targetH = Math.max(h, MIN_SIZE);
-                targetW = targetH * ratio;
-            } else {
-                targetW = Math.max(w, MIN_SIZE);
-                targetH = targetW / ratio;
-            }
-
-            // Apply anchored resizing depending on which handle is being dragged.
-            if (dir === 'tl') {
-                newL = newR - targetW;
-                newT = newB - targetH;
-            } else if (dir === 'tr') {
-                newR = newL + targetW;
-                newT = newB - targetH;
-            } else if (dir === 'bl') {
-                newL = newR - targetW;
-                newB = newT + targetH;
-            } else if (dir === 'br') {
-                newR = newL + targetW;
-                newB = newT + targetH;
-            } else if (dir === 'l') {
-                newL = newR - targetW;
-                newT = cy - targetH / 2;
-                newB = cy + targetH / 2;
-            } else if (dir === 'r') {
-                newR = newL + targetW;
-                newT = cy - targetH / 2;
-                newB = cy + targetH / 2;
-            } else if (dir === 't') {
-                newT = newB - targetH;
-                newL = cx - targetW / 2;
-                newR = cx + targetW / 2;
-            } else if (dir === 'b') {
-                newB = newT + targetH;
-                newL = cx - targetW / 2;
-                newR = cx + targetW / 2;
-            } else {
-                newL = cx - targetW / 2;
-                newR = cx + targetW / 2;
-                newT = cy - targetH / 2;
-                newB = cy + targetH / 2;
-            }
-
-            if (newL > newR) { const t = newL; newL = newR; newR = t; }
-            if (newT > newB) { const t = newT; newT = newB; newB = t; }
-            return;
-        }
-
-        if (w < MIN_SIZE) {
-            if (dir.includes('l') && !dir.includes('r')) {
-                newL = newR - MIN_SIZE;
-            } else if (dir.includes('r') && !dir.includes('l')) {
-                newR = newL + MIN_SIZE;
-            } else {
-                const cx = (newL + newR) / 2;
-                newL = cx - MIN_SIZE / 2;
-                newR = cx + MIN_SIZE / 2;
-            }
-        }
-
-        if (h < MIN_SIZE) {
-            if (dir.includes('t') && !dir.includes('b')) {
-                newT = newB - MIN_SIZE;
-            } else if (dir.includes('b') && !dir.includes('t')) {
-                newB = newT + MIN_SIZE;
-            } else {
-                const cy = (newT + newB) / 2;
-                newT = cy - MIN_SIZE / 2;
-                newB = cy + MIN_SIZE / 2;
-            }
-        }
-
-        if (newL > newR) { const t = newL; newL = newR; newR = t; }
-        if (newT > newB) { const t = newT; newT = newB; newB = t; }
-    };
 
     if (keepRatio) {
         const ratio = state.aspectRatioVal;
@@ -579,9 +487,6 @@ function calculateResize(dx, dy, dir, startW, startH, startOffX, startOffY, keep
         }
     }
 
-    // Enforce minimum size after aspect ratio adjustments.
-    enforceMinSize();
-
     const corners = [
         {x: newL, y: newT}, {x: newR, y: newT},
         {x: newR, y: newB}, {x: newL, y: newB}
@@ -589,7 +494,7 @@ function calculateResize(dx, dy, dir, startW, startH, startOffX, startOffY, keep
     let valid = true;
     for(let p of corners) {
         const c = constrainPoint(p.x, p.y);
-        if (Math.abs(c.x - p.x) > 0.1 || Math.abs(c.y - p.y) > 0.1) {
+        if (Math.abs(c.x - p.x) > 0.01 || Math.abs(c.y - p.y) > 0.01) {
             valid = false; break;
         }
     }
@@ -600,27 +505,9 @@ function calculateResize(dx, dy, dir, startW, startH, startOffX, startOffY, keep
         else if (dir === 'br') { anx=newL; any=newT; }
         else if (dir === 'tr') { anx=newL; any=newB; }
         else if (dir === 'bl') { anx=newR; any=newT; }
-        else if (dir === 'l') { anx = newR; any = (newT + newB) / 2; }
-        else if (dir === 'r') { anx = newL; any = (newT + newB) / 2; }
-        else if (dir === 't') { anx = (newL + newR) / 2; any = newB; }
-        else if (dir === 'b') { anx = (newL + newR) / 2; any = newT; }
         else { anx = (newL+newR)/2; any = (newT+newB)/2; }
         
-        const originalW = newR - newL;
-        const originalH = newB - newT;
-        // Prevent shrinking below minimum size in the constraint-fitting step.
-        const minFactor = Math.min(
-            1,
-            Math.max(
-                MIN_SIZE / Math.max(originalW, 1e-9),
-                MIN_SIZE / Math.max(originalH, 1e-9)
-            )
-        );
-
-        let low = minFactor;
-        let high = 1;
-        let bestScale = minFactor;
-        let found = false;
+        let low = 0, high = 1, bestScale = 0;
         for(let i=0; i<10; i++) {
             const mid = (low + high) / 2;
             const tL = anx + (newL - anx) * mid;
@@ -631,32 +518,20 @@ function calculateResize(dx, dy, dir, startW, startH, startOffX, startOffY, keep
             let ok = true;
             for(let p of tCorners) {
                 const c = constrainPoint(p.x, p.y);
-                if (Math.abs(c.x - p.x) > 0.1 || Math.abs(c.y - p.y) > 0.1) {
+                if (Math.abs(c.x - p.x) > 0.01 || Math.abs(c.y - p.y) > 0.01) {
                     ok = false; break;
                 }
             }
-            if (ok) { found = true; bestScale = mid; low = mid; } else { high = mid; }
+            if (ok) { bestScale = mid; low = mid; } else { high = mid; }
         }
-
-        // If we can't satisfy constraints without going below minimum size,
-        // stop resizing (keep the current box) instead of pushing it out.
-        if (!found) {
-            return {
-                w: state.boxWidth,
-                h: state.boxHeight,
-                x: state.boxOffsetX,
-                y: state.boxOffsetY,
-            };
-        }
-
         newL = anx + (newL - anx) * bestScale;
         newR = anx + (newR - anx) * bestScale;
         newT = any + (newT - any) * bestScale;
         newB = any + (newB - any) * bestScale;
     }
 
-    // One more guard to ensure minimum size.
-    enforceMinSize();
+    if (newR - newL < 50) newR = newL + 50;
+    if (newB - newT < 50) newB = newT + 50;
 
     return {
         w: newR - newL,
@@ -686,53 +561,18 @@ function getRequiredScale() {
     return requiredScale;
 }
 
-function updateScaleAndPanForRotationWithRelPan(relPanX, relPanY) {
-    // Compute the minimum scale required so that all box corners fit within the rotated image.
-    // Box is at (0,0) with size (boxWidth, boxHeight).
-    // Image is rotated by smoothRotation, scaled by `scale`, and panned by (panX, panY).
-    
-    const boxCorners = [
-        { x: -state.boxWidth / 2, y: -state.boxHeight / 2 },
-        { x:  state.boxWidth / 2, y: -state.boxHeight / 2 },
-        { x:  state.boxWidth / 2, y:  state.boxHeight / 2 },
-        { x: -state.boxWidth / 2, y:  state.boxHeight / 2 },
-    ];
-    
-    const rad = state.smoothRotation * Math.PI / 180;
-    const C = Math.cos(-rad);
-    const S = Math.sin(-rad);
-    
-    const halfImgW = state.currentImgWidth / 2;
-    const halfImgH = state.currentImgHeight / 2;
-    
-    let minScale = state.baseScale;
-    
-    // For each corner, solve for the minimum scale S such that:
-    // The corner (rotated into image-local space) lies within the image bounds,
-    // taking into account the relative pan (relPanX, relPanY).
-    boxCorners.forEach(p => {
-        const rx = p.x * C - p.y * S;
-        const ry = p.x * S + p.y * C;
-        
-        // Image center is at (relPanX * S, relPanY * S) in the rotated frame.
-        // For corner to be inside image: |rx - relPanX*S| <= halfImgW*S and |ry - relPanY*S| <= halfImgH*S.
-        // Solve: S >= |rx| / (halfImgW + sign(rx)*relPanX), etc.
-        
-        const denomX = halfImgW + (rx >= 0 ? relPanX : -relPanX);
-        const sX = denomX > 1e-9 ? Math.abs(rx) / denomX : Infinity;
-        
-        const denomY = halfImgH + (ry >= 0 ? relPanY : -relPanY);
-        const sY = denomY > 1e-9 ? Math.abs(ry) / denomY : Infinity;
-        
-        minScale = Math.max(minScale, sX, sY);
-    });
-    
-    // Clamp to a reasonable maximum to avoid numerical issues.
-    const newScale = Math.min(minScale, state.baseScale * 10);
-    
-    state.scale = newScale;
-    state.panX = relPanX * newScale;
-    state.panY = relPanY * newScale;
+function updateScaleAndPanForRotation() {
+    const prevScale = state.scale;
+    const reqScale = getRequiredScale();
+    const newScale = Math.max(reqScale, state.baseScale);
+    if (Math.abs(newScale - prevScale) > 1e-9 && prevScale > 0) {
+        const ratio = newScale / prevScale;
+        state.scale = newScale;
+        state.panX *= ratio;
+        state.panY *= ratio;
+    } else {
+        state.scale = Math.max(state.scale, reqScale);
+    }
 }
 
 function clampPan() {
@@ -851,60 +691,6 @@ function renderDOM() {
     ui.cropBox.style.top = `calc(50% + ${state.boxOffsetY}px - ${state.boxHeight/2}px)`;
 }
 
-// Helper: Calculate Min Scale to cover a box at a relative position
-function getMinScaleForBox(boxW, boxH, relPanX, relPanY) {
-    // We assume Box is centered at (0,0) locally, but Image is shifted by relPan
-    // Image coverage condition: 
-    // For every box corner C (rotated):
-    // |C - relPan * Scale| <= (ImgDim / 2) * Scale
-    
-    const corners = [
-        {x: -boxW/2, y: -boxH/2}, {x: boxW/2, y: -boxH/2},
-        {x: boxW/2, y: boxH/2}, {x: -boxW/2, y: boxH/2}
-    ];
-    
-    const rad = state.smoothRotation * Math.PI / 180;
-    const cos = Math.cos(-rad);
-    const sin = Math.sin(-rad);
-    
-    const halfImgW = state.currentImgWidth / 2;
-    const halfImgH = state.currentImgHeight / 2;
-    
-    let minScale = 0;
-    
-    corners.forEach(p => {
-        // Rotate corner to match image local space
-        const rx = p.x * cos - p.y * sin;
-        const ry = p.x * sin + p.y * cos;
-        
-        // Solve for Scale S:
-        // |rx - relPanX * S| <= halfImgW * S
-        // Let P = relPanX, L = halfImgW.
-        // |rx - P*S| <= L*S
-        // This implies S >= |rx| / (L + sign(rx)*P) 
-        // (Assuming P is "inside" L, which it should be if we are just zooming)
-        
-        const sx = Math.abs(rx) / (halfImgW - Math.sign(rx) * -relPanX); // simplified derivation?
-        // Let's derive carefully:
-        // Case 1: rx > 0. rx - P*S <= L*S => rx <= (L+P)S => S >= rx/(L+P).
-        // Case 2: rx < 0. -(rx - P*S) <= L*S => -rx + P*S <= L*S => -rx <= (L-P)S => S >= -rx/(L-P).
-        // Combine: S >= |rx| / (L + sign(rx)*P)
-        
-        // However, if (L + sign(rx)*P) is negative (Pan is outside image), we have a problem.
-        // But here we assume we are centering validly.
-        
-        const denomX = halfImgW + (rx >= 0 ? relPanX : -relPanX);
-        const s_req_x = denomX > 0 ? Math.abs(rx) / denomX : 0; // if denom < 0, implies center is way off, not handled here
-        
-        const denomY = halfImgH + (ry >= 0 ? relPanY : -relPanY);
-        const s_req_y = denomY > 0 ? Math.abs(ry) / denomY : 0;
-        
-        minScale = Math.max(minScale, s_req_x, s_req_y);
-    });
-    
-    return minScale;
-}
-
 function animateReset() {
     if (state.isAnimating) return;
     state.isAnimating = true;
@@ -926,33 +712,24 @@ function animateReset() {
         targetBoxW = targetSize * targetAspect;
     }
 
-    // 1. Calculate Relative Pan (normalized) from current state
+    const scaleMultiplier = targetBoxW / state.boxWidth;
+    let targetScale = state.scale * scaleMultiplier;
+    
+    // 【修正箇所】 座標系変換を厳密に行う
+    // BoxOffset（画面座標）を画像ローカル座標（回転適用）に変換してから引き算する
     const rad = state.smoothRotation * Math.PI / 180;
+    // getConstraintsParams と同じ Screen -> Local 変換係数
     const C = Math.cos(-rad);
     const S = Math.sin(-rad);
     
-    // Project Box Offset to Local
+    // BoxOffsetをローカル座標に投影
     const boxLocalX = state.boxOffsetX * C - state.boxOffsetY * S;
     const boxLocalY = state.boxOffsetX * S + state.boxOffsetY * C;
     
-    // RelPan is the vector from Box Center to Image Center, in unscaled pixels
-    // Current Pan is Local Image Center.
-    const relPanX = (state.panX - boxLocalX) / state.scale;
-    const relPanY = (state.panY - boxLocalY) / state.scale;
-    
-    // 2. Determine Required Scale for New Box to fit
-    const minRequiredScale = getMinScaleForBox(targetBoxW, targetBoxH, relPanX, relPanY);
-    
-    // 3. Determine Base Target Scale (Zoom to fit viewport logic)
-    const baseTargetScale = state.scale * (targetBoxW / state.boxWidth);
-    
-    // 4. Final Target Scale is the larger of the two
-    // This ensures that if the new aspect ratio pushes corners out, we zoom in.
-    let targetScale = Math.max(baseTargetScale, minRequiredScale);
-    
-    // 5. Calculate Target Pan
-    let targetPanX = relPanX * targetScale;
-    let targetPanY = relPanY * targetScale;
+    // 現在の PanX, PanY はローカル座標での画像位置
+    // 新しい PanX は (現在のPan - Boxのズレ) * 倍率
+    let targetPanX = (state.panX - boxLocalX) * scaleMultiplier;
+    let targetPanY = (state.panY - boxLocalY) * scaleMultiplier;
 
     const start = {
         w: state.boxWidth, h: state.boxHeight,
@@ -1108,26 +885,9 @@ window.addEventListener('mouseup', () => {
 
 ui.rotationSlider.addEventListener('mousedown', () => { state.baseScale = state.scale; });
 ui.rotationSlider.addEventListener('input', (e) => {
-    const value = parseFloat(e.target.value);
-    
-    // During rotation, reset boxOffset to 0 to lock rotation axis to bounding box center.
-    // Preserve the relative pan (image offset from box center).
-    const rad = state.smoothRotation * Math.PI / 180;
-    const C = Math.cos(-rad);
-    const S = Math.sin(-rad);
-    const boxLocalX = state.boxOffsetX * C - state.boxOffsetY * S;
-    const boxLocalY = state.boxOffsetX * S + state.boxOffsetY * C;
-    
-    // Relative pan is the image center offset from box center in image-local space.
-    const relPanX = (state.panX - boxLocalX) / state.scale;
-    const relPanY = (state.panY - boxLocalY) / state.scale;
-    
-    state.smoothRotation = value;
-    state.boxOffsetX = 0;
-    state.boxOffsetY = 0;
-    
+    state.smoothRotation = parseFloat(e.target.value);
     ui.rotationVal.innerText = state.smoothRotation.toFixed(2) + '°';
-    updateScaleAndPanForRotationWithRelPan(relPanX, relPanY);
+    updateScaleAndPanForRotation(); 
     renderDOM();
 });
 
@@ -1161,6 +921,11 @@ ui.downloadBtn.addEventListener('click', () => {
     panScaleGroup.add(baseGroup);
     panScaleGroup.scale.set(state.scale, state.scale, 1);
     
+    // 【修正】書き出し時も回転考慮の座標変換が必要
+    // プレビューのPanはRotated Space、BoxOffsetはScreen Space
+    // これを合わせて「Rotated Spaceでの最終的な画像位置」を算出する
+    // TargetPan(Local) = Pan(Local) - BoxOffset(LocalProjected)
+    
     const rad = state.smoothRotation * Math.PI / 180;
     const C = Math.cos(-rad);
     const S = Math.sin(-rad);
@@ -1169,6 +934,7 @@ ui.downloadBtn.addEventListener('click', () => {
     const boxLocalY = state.boxOffsetX * S + state.boxOffsetY * C;
     
     panScaleGroup.position.x = state.panX - boxLocalX;
+    // WebGL Y is inverted
     panScaleGroup.position.y = -(state.panY - boxLocalY); 
 
     const smoothGroup = new THREE.Group();
