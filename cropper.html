@@ -379,7 +379,15 @@ function initEditor() {
     state.scale = state.boxWidth / state.currentImgWidth;
     state.baseScale = state.scale;
 
-    updateScaleAndPanForRotation(); 
+    // Initialize with relative pan calculation
+    const initRad = state.smoothRotation * Math.PI / 180;
+    const initC = Math.cos(-initRad);
+    const initS = Math.sin(-initRad);
+    const initBoxLocalX = state.boxOffsetX * initC - state.boxOffsetY * initS;
+    const initBoxLocalY = state.boxOffsetX * initS + state.boxOffsetY * initC;
+    const initRelPanX = (state.panX - initBoxLocalX) / state.scale;
+    const initRelPanY = (state.panY - initBoxLocalY) / state.scale;
+    updateScaleAndPanForRotationWithRelPan(initRelPanX, initRelPanY);
     renderDOM();
 }
 
